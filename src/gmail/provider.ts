@@ -54,7 +54,20 @@ export class GmailProvider implements MailProviderAdapter {
     return sendResult(await this.api(context).sendMessage(base64UrlMime(composeMime(reply, threadHeaders(original))), original.providerThreadId));
   }
   public async forward(context: ProviderContext, original: ProviderMessage, message: OutgoingMessage): Promise<SendResult> {
-    const forwarded = { ...message, subject: message.subject || (/^fwd?:/i.test(original.subject) ? original.subject : `Fwd: ${original.subject}`), text: `${message.text}\n\n---------- Forwarded message ----------\n${original.bodyText}` };
+    const raw = await this.api(context).getMessage(original.providerMessageId, "raw");
+    if (!raw.raw) throw new MailError("PROVIDER_UNAVAILABLE", "Gmail did not return the original message for forwarding.");
+    const forwarded: OutgoingMessage = {
+      ...message,
+      subject: message.subject || (/^fwd?:/i.test(original.subject) ? original.subject : `Fwd: ${original.subject}`),
+      attachments: [
+        ...(message.attachments ?? []),
+        {
+          filename: "forwarded-message.eml",
+          contentType: "message/rfc822",
+          contentBase64: Buffer.from(raw.raw, "base64url").toString("base64"),
+        },
+      ],
+    };
     return sendResult(await this.api(context).sendMessage(base64UrlMime(composeMime(forwarded))));
   }
   public async archive(context: ProviderContext, ids: readonly string[]): Promise<void> { for (const id of ids) await this.api(context).modify(id, [], ["INBOX"]); }

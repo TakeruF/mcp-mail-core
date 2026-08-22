@@ -68,7 +68,7 @@ Legend: common = safe common contract; semantic = common operation with document
 | Drafts | native create/update/send | IMAP Drafts | IMAP Drafts | common, cleanup differs |
 | Send | Gmail API MIME | SMTP | SMTP | common, transport private |
 | Reply | native thread + RFC headers | RFC headers | RFC headers/reply-all | common, semantics differ |
-| Forward | quoted body in v0.2 | quoted body, drops originals | original `message/rfc822` | common but uneven; improve Gmail/QQ |
+| Forward | original `message/rfc822` | quoted body, drops originals | original `message/rfc822` | common but QQ remains below baseline |
 | Archive | remove `INBOX` | move to Archive mailbox | move to special-use Archive | semantic common operation |
 | Trash | native Trash endpoint | move to detected Trash | move to special-use Trash; reject already there | common; rename QQ delete |
 | Permanent delete | API supports, adapter refuses | not exposed intentionally | not exposed intentionally | unsafe to abstract; excluded |
@@ -170,7 +170,6 @@ Automated mocked tests cover independent credentials, overwrite rejection, selec
 Remaining limitations:
 
 - QQ and iCloud adapters are not implemented in this repository and their production servers were not changed.
-- Gmail forward currently quotes the bounded text body; it does not yet attach the original raw message or preserve all original attachments as iCloud does.
 - Gmail MIME address parsing is intentionally small and should be replaced by a hardened parser before broad deployment.
 - The Gmail adapter limits per-page metadata fetches to eight concurrent requests but has no exponential-backoff implementation yet.
 - Cross-account cursor payloads are opaque and query-bound, not cryptographically authenticated. Treat them as untrusted input; remote deployments should sign/encrypt them.
@@ -185,5 +184,5 @@ Remaining limitations:
 2. Add opt-in Gmail live smoke tests using a dedicated test account and metadata-only fixtures.
 3. Implement the iCloud adapter first; it is closest to the target safety contract.
 4. Harden QQ to the listed gates, then implement its adapter.
-5. Add raw-message Gmail forwarding that matches iCloud's preservation behavior.
+5. Add a hardened RFC address parser and reply-all semantics shared by capable adapters.
 6. Only then evaluate one remote unified MCP deployment, with principal-to-account authorization and a production secret manager designed first.

@@ -58,6 +58,29 @@ describe("Gmail provider", () => {
     expect(Buffer.from(replyBody.raw, "base64url").toString()).toContain("In-Reply-To: <m1@example.com>");
   });
 
+  it("forwards the bounded original RFC 822 message and preserves caller attachments", async () => {
+    const originalRaw = "From: sender@example.com\r\nSubject: Original\r\n\r\nOriginal body";
+    const calls: Array<{ url: string; body?: string }> = [];
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input); calls.push({ url, ...(typeof init?.body === "string" ? { body: init.body } : {}) });
+      if (url.includes("format=raw")) return response({ id: "m1", threadId: "t1", raw: Buffer.from(originalRaw).toString("base64url") });
+      if (url.endsWith("/messages/send")) return response({ id: "forwarded" });
+      return response(message("m1", "t1", []));
+    });
+    const adapter = await adapterWithToken(fetchMock as typeof fetch);
+    const original = await adapter.getMessage(context, "m1");
+    await adapter.forward(context, original, {
+      to: ["recipient@example.com"], subject: "", text: "FYI",
+      attachments: [{ filename: "note.txt", contentType: "text/plain", contentBase64: Buffer.from("note").toString("base64") }],
+    });
+    const sent = JSON.parse(calls.find((call) => call.url.endsWith("/messages/send"))?.body ?? "{}") as { raw: string };
+    const mime = Buffer.from(sent.raw, "base64url").toString();
+    expect(mime).toContain("Subject: Fwd: Hello");
+    expect(mime).toContain('filename="note.txt"');
+    expect(mime).toContain('filename="forwarded-message.eml"');
+    expect(mime).toContain(Buffer.from(originalRaw).toString("base64"));
+  });
+
   it("maps archive, trash, unread and starred to Gmail-native operations", async () => {
     const calls: Array<{ url: string; body?: string }> = [];
     const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => { calls.push({ url: String(input), ...(typeof init?.body === "string" ? { body: init.body } : {}) }); return response({ id: "m1" }); });
