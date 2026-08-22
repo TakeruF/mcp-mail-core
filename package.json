@@ -17,6 +17,7 @@
     "start": "node dist/cli.js",
     "enroll:gmail": "node dist/enroll-gmail.js",
     "accounts:list": "node dist/list-accounts.js",
+    "accounts:check": "node dist/check-accounts.js",
     "remove:gmail": "node dist/remove-gmail.js"
   },
   "dependencies": {

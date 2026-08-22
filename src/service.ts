@@ -21,6 +21,35 @@ export class MultiAccountMailService {
     return (await this.registry.list()).map(publicAccount);
   }
 
+  /** Administrative health refresh. It never returns credential handles or tokens. */
+  public async refreshAccountHealth(accountIds?: readonly string[]): Promise<readonly MailAccount[]> {
+    const all = await this.registry.list();
+    const selected = accountIds === undefined
+      ? all
+      : [...new Set(accountIds)].map((id) => {
+          const account = all.find((candidate) => candidate.id === id);
+          if (!account) throw new MailError("ACCOUNT_NOT_FOUND", `Account '${id}' was not found.`);
+          return account;
+        });
+    const results: MailAccount[] = [];
+    for (const account of selected) {
+      const provider = this.#providers.get(account.provider);
+      let patch: Partial<Pick<RegisteredAccount, "status" | "providerIdentity">>;
+      if (!provider) patch = { status: "error" };
+      else {
+        try {
+          const health = await provider.health({ account: publicAccount(account), credentialId: account.credentialId });
+          patch = { status: health.status, ...(health.identity ? { providerIdentity: health.identity } : {}) };
+        } catch { patch = { status: "error" }; }
+      }
+      await this.registry.update(account.id, patch);
+      const updated = await this.registry.get(account.id);
+      if (!updated) throw new MailError("INTERNAL", `Account '${account.id}' disappeared during its health check.`);
+      results.push(publicAccount(updated));
+    }
+    return results;
+  }
+
   /** Reads default to all ready accounts. Writes never have an account default. */
   public async search(input: { query: SearchQuery; accounts?: readonly string[] | "*"; cursor?: string; limitPerAccount?: number }): Promise<CrossAccountSearchPage> {
     const selected = await this.selectReadAccounts(input.accounts ?? "*");

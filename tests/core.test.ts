@@ -62,7 +62,7 @@ describe("multi-account core", () => {
 
   it("rejects cross-account bulk mutations instead of partially applying them", async () => {
     const adapter = provider();
-    const service = new MultiAccountMailService(new InMemoryAccountRegistry([account("personal"), account("work")]), [adapter]);
+    const service = new MultiAccountMailService(new InMemoryAccountRegistry([account("personal"), account("work")]), [adapter], cursorSecret);
     await expect(service.trash({ refs: [{ accountId: "personal", messageId: "one" }, { accountId: "work", messageId: "two" }], confirm: true })).rejects.toMatchObject({ code: "INVALID_REFERENCE" });
     await expect(service.archive({ refs: [{ accountId: "personal", messageId: "one" }, { accountId: "work", messageId: "two" }], confirm: true })).rejects.toMatchObject({ code: "INVALID_REFERENCE" });
     await expect(service.setFlags({ refs: [{ accountId: "personal", messageId: "one" }, { accountId: "work", messageId: "two" }], changes: { read: true }, confirm: true })).rejects.toMatchObject({ code: "INVALID_REFERENCE" });
@@ -75,6 +75,19 @@ describe("multi-account core", () => {
     const service = new MultiAccountMailService(new InMemoryAccountRegistry([account("personal")]), [provider()], cursorSecret);
     await expect(service.getThread({ accountId: "personal", threadId: "t" })).rejects.toMatchObject({ code: "CAPABILITY_UNSUPPORTED" });
     expect("permanentDelete" in service).toBe(false);
+  });
+
+  it("refreshes safe account health metadata without exposing credential handles", async () => {
+    const adapter = provider({ health: vi.fn(async (context: ProviderContext) => context.account.id === "personal" ? { status: "ready" as const, identity: "me@example.com" } : { status: "reauthorization_required" as const }) });
+    const registry = new InMemoryAccountRegistry([account("personal"), account("university")]);
+    const service = new MultiAccountMailService(registry, [adapter], cursorSecret);
+    const result = await service.refreshAccountHealth();
+    expect(result).toEqual([
+      expect.objectContaining({ id: "personal", status: "ready", providerIdentity: "me@example.com" }),
+      expect.objectContaining({ id: "university", status: "reauthorization_required" }),
+    ]);
+    expect(JSON.stringify(result)).not.toContain("credential:");
+    expect((await registry.get("university"))?.status).toBe("reauthorization_required");
   });
 });
 
