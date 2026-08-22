@@ -1,6 +1,6 @@
 # Multi-account, multi-provider mail core architecture
 
-Status: executable Gmail slice implemented; QQ/iCloud migration gated. Research checked on 2026-08-22.
+Status: executable Gmail slice implemented; thin iCloud adapter and synthetic core-host integration implemented in the sibling provider checkout; QQ migration gated. Research checked on 2026-08-22.
 
 ## 1. Existing-system findings
 
@@ -151,13 +151,13 @@ Provider-specific tools should be added only when semantics cannot fit a capabil
 - **One mandatory mega-provider interface:** rejected because unsupported stubs obscure capabilities and encourage false equivalence.
 - **Global search ranking and one total limit:** rejected for v0.2 because provider relevance is incomparable and naïve cursor advancement can drop results.
 - **Generic `delete`:** rejected because it conflates Trash with irreversible deletion.
-- **Immediate QQ/iCloud dependency migration:** rejected because QQ currently fails mandatory safety/bounds gates and iCloud's mature deployment/auth behavior should not be destabilized by a new core.
+- **Immediate production QQ/iCloud cutover:** rejected because QQ currently fails mandatory safety/bounds gates and iCloud's mature deployment/auth behavior must remain available as a rollback path while its thin adapter is validated.
 - **Credentials inside the account JSON:** rejected because metadata routing and authentication secrets have different exposure and lifecycle requirements.
 
 ## 9. Migration strategy
 
 1. Keep QQ and iCloud production servers independent. Consume this package only in synthetic adapter tests first.
-2. Build an iCloud adapter mapping existing bounded `MailService`/`MailSender` operations. Preserve its IDs/cursors, read-only locks, limits, exact confirmation, draft partial outcomes, and remote security. Do not move IMAP/SMTP or endpoint OAuth into core.
+2. The sibling iCloud checkout now provides an adapter mapping existing bounded `MailService`/`MailSender` operations, independent credential lookup, and synthetic core-host tests. Continue to preserve its IDs/cursors, read-only locks, limits, exact confirmation, draft partial outcomes, and remote security. Do not move IMAP/SMTP or endpoint OAuth into core.
 3. Harden QQ before conformance: use read-only mailbox opens and PEEK, metadata-only bounded search, opaque pagination, bounded bodies/attachments, attachment-ID-only selection, literal runtime confirmation, explicit `trash` naming, safe draft partial outcomes, and redacted unexpected errors.
 4. Run the same provider contract suite against Gmail, iCloud, and QQ adapters. Capability-specific tests may skip only declared unsupported features.
 5. Host adapters in one unified MCP server only after account credential stores and deployment principal-to-account authorization are defined for each provider. Existing provider-specific servers remain rollback paths.
@@ -169,10 +169,10 @@ Automated mocked tests cover independent credentials, overwrite rejection, selec
 
 Remaining limitations:
 
-- QQ and iCloud adapters are not implemented in this repository and their production servers were not changed.
+- The iCloud adapter lives in the provider repository rather than this core repository. Its production server was not cut over, and live multi-account IMAP/SMTP tests were not run. QQ remains unadapted.
 - Gmail address parsing handles quoted commas, Reply-To, case-insensitive deduplication, and reply-all self-exclusion, but it is not a complete RFC 5322 parser and should be replaced by a hardened parser before broad deployment.
 - The Gmail adapter limits per-page metadata fetches to eight concurrent requests and retries idempotent reads at most three times. It does not yet coordinate a global per-account quota budget across concurrent searches.
-- Account health is modeled and adapter health exists, but the CLI does not persist health refresh results automatically.
+- Account health is refreshed explicitly through an administrative CLI and persisted as safe status/identity metadata; no background scheduler is included.
 - The server is local stdio only. Remote MCP auth and multi-tenant authorization are deliberately absent.
 - No live credential test was run in this work. The opt-in profile/metadata smoke test is isolated under `tests/live/` and normal tests exclude it.
 - Removal/revocation is deliberately an explicit-confirmation administrative CLI operation rather than an MCP mail tool.
@@ -181,7 +181,7 @@ Remaining limitations:
 
 1. Add a shared per-account quota budget and observability for concurrent searches.
 2. Add opt-in Gmail live smoke tests using a dedicated test account and metadata-only fixtures.
-3. Implement the iCloud adapter first; it is closest to the target safety contract.
+3. Run opt-in read-only checks for the iCloud adapter with dedicated accounts, then validate draft/send fixtures separately while retaining the standalone rollback path.
 4. Harden QQ to the listed gates, then implement its adapter.
 5. Replace the bounded built-in address parser with a fully RFC-tested parser before broad remote deployment.
 6. Only then evaluate one remote unified MCP deployment, with principal-to-account authorization and a production secret manager designed first.
