@@ -6,6 +6,10 @@ export type ThreadHeaders = Readonly<{ messageId?: string; references?: readonly
 
 export function composeMime(message: OutgoingMessage, thread?: ThreadHeaders): string {
   validateHeader(message.subject);
+  if (message.subject.length > 998) throw new MailError("INVALID_INPUT", "Mail subjects cannot exceed 998 characters.");
+  if (message.text.length > 500_000) throw new MailError("INVALID_INPUT", "Mail text exceeds the configured size limit.");
+  if (message.to.length > 100 || (message.cc?.length ?? 0) > 100 || (message.bcc?.length ?? 0) > 100) throw new MailError("INVALID_INPUT", "Mail recipient lists cannot exceed 100 addresses.");
+  if ((message.attachments?.length ?? 0) > 10) throw new MailError("INVALID_INPUT", "Mail cannot contain more than 10 attachments.");
   for (const address of [...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])]) validateHeader(address);
   if (!message.to.length) throw new MailError("INVALID_INPUT", "At least one recipient is required.");
   const headers = [
@@ -27,11 +31,14 @@ export function composeMime(message: OutgoingMessage, thread?: ThreadHeaders): s
   let totalAttachmentBytes = 0;
   for (const attachment of message.attachments) {
     validateHeader(attachment.filename);
+    const contentType = attachment.contentType ?? "application/octet-stream";
+    if (!/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/.test(contentType)) throw new MailError("INVALID_INPUT", "Attachment contentType must be a simple MIME media type.");
     if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(attachment.contentBase64)) throw new MailError("INVALID_INPUT", "Attachment content must be canonical Base64.");
     const size = Buffer.byteLength(attachment.contentBase64, "base64");
     totalAttachmentBytes += size;
     if (size > 5 * 1024 * 1024 || totalAttachmentBytes > 20 * 1024 * 1024) throw new MailError("INVALID_INPUT", "Outgoing attachments exceed the configured size limit.");
-    parts.push(`--${boundary}`, `Content-Type: ${attachment.contentType ?? "application/octet-stream"}; name="${attachment.filename}"`, "Content-Transfer-Encoding: base64", `Content-Disposition: attachment; filename="${attachment.filename}"`, "", attachment.contentBase64);
+    const filename = quotedParameter(attachment.filename);
+    parts.push(`--${boundary}`, `Content-Type: ${contentType}; name="${filename}"`, "Content-Transfer-Encoding: base64", `Content-Disposition: attachment; filename="${filename}"`, "", attachment.contentBase64);
   }
   parts.push(`--${boundary}--`, "");
   return parts.join("\r\n");
@@ -43,3 +50,4 @@ function validateHeader(value: string): void {
   if (/\r|\n/.test(value)) throw new MailError("INVALID_INPUT", "Mail headers cannot contain newlines.");
 }
 function encodeHeader(value: string): string { return /^[\x20-\x7e]*$/.test(value) ? value : `=?UTF-8?B?${Buffer.from(value).toString("base64")}?=`; }
+function quotedParameter(value: string): string { return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"'); }

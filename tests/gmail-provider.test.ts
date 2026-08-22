@@ -1,9 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import { GmailProvider, GoogleTokenBroker, InMemoryGmailCredentialStore, gmailQuery, type ProviderContext } from "../src/index.js";
+import { GmailProvider, GoogleTokenBroker, InMemoryGmailCredentialStore, composeMime, gmailQuery, type ProviderContext } from "../src/index.js";
 
 const context: ProviderContext = { account: { id: "gmail-personal", provider: "gmail", label: "Personal", roles: ["personal"], status: "ready", providerIdentity: "me@example.com", capabilities: { search: true, nativeSearch: true, threads: "native", labels: true, folders: false, attachments: true, drafts: true, send: true, reply: true, forward: true, archive: true, trash: true, permanentDelete: false, flags: ["read", "starred"] } }, credentialId: "gmail:gmail-personal" };
 
 describe("Gmail provider", () => {
+  it("enforces MIME safety bounds at the provider boundary", () => {
+    expect(() => composeMime({ to: ["a@example.com"], subject: "safe", text: "body", attachments: [{ filename: "note.txt", contentType: "text/plain\r\nBcc: victim@example.com", contentBase64: "YQ==" }] })).toThrow("simple MIME media type");
+    const escaped = composeMime({ to: ["a@example.com"], subject: "safe", text: "body", attachments: [{ filename: 'quote"name.txt', contentType: "text/plain", contentBase64: "YQ==" }] });
+    expect(escaped).toContain('filename="quote\\"name.txt"');
+    expect(() => composeMime({ to: ["a@example.com"], subject: "x".repeat(999), text: "body" })).toThrow("998");
+    expect(() => composeMime({ to: ["a@example.com"], subject: "safe", text: "body", attachments: Array.from({ length: 11 }, (_, index) => ({ filename: `${index}.txt`, contentBase64: "YQ==" })) })).toThrow("10 attachments");
+  });
   it("preserves native query, labels, dates, unread, and attachment filters", () => {
     expect(gmailQuery({ nativeQuery: "newer_than:7d", text: "OpenAI", labels: ["university"], unread: true, hasAttachment: true, after: "2026/08/01" })).toBe("newer_than:7d OpenAI after:2026/08/01 is:unread has:attachment label:university");
   });
