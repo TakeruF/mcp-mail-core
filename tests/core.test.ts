@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { InMemoryAccountRegistry, InMemoryGmailCredentialStore, MailError, MultiAccountMailService, type MailProviderAdapter, type ProviderContext, type ProviderMessage, type RegisteredAccount } from "../src/index.js";
 
 const capabilities = { search: true as const, nativeSearch: false, threads: false as const, labels: false, folders: true, attachments: false, drafts: false, send: true, reply: false, forward: false, archive: true, trash: true, permanentDelete: false, flags: ["read"] as const };
+const cursorSecret = Buffer.alloc(32, 7);
 const account = (id: string, credentialId = `credential:${id}`): RegisteredAccount => ({ id, provider: "mock", label: id, roles: [], capabilities, status: "ready", credentialId });
 
 function provider(overrides: Partial<MailProviderAdapter> = {}): MailProviderAdapter {
@@ -29,7 +30,7 @@ describe("multi-account core", () => {
 
   it("searches selected or all accounts, qualifies colliding IDs, and paginates per account", async () => {
     const adapter = provider();
-    const service = new MultiAccountMailService(new InMemoryAccountRegistry([account("personal"), account("university")]), [adapter]);
+    const service = new MultiAccountMailService(new InMemoryAccountRegistry([account("personal"), account("university")]), [adapter], cursorSecret);
     const first = await service.search({ accounts: "*", query: { text: "OpenAI" }, limitPerAccount: 2 });
     expect(first.pages.map((page) => page.accountId)).toEqual(["personal", "university"]);
     expect(first.pages.map((page) => page.messages[0]?.ref)).toEqual([{ accountId: "personal", messageId: "same-id" }, { accountId: "university", messageId: "same-id" }]);
@@ -45,22 +46,33 @@ describe("multi-account core", () => {
       if (context.account.id === "broken") throw new MailError("PROVIDER_UNAVAILABLE", "Temporary failure.", true);
       return { messages: [{ providerMessageId: "ok", subject: "ok", from: [], to: [], unread: false, starred: false, snippet: "", hasAttachments: false }] };
     }) });
-    const service = new MultiAccountMailService(new InMemoryAccountRegistry([account("working"), account("broken")]), [adapter]);
+    const service = new MultiAccountMailService(new InMemoryAccountRegistry([account("working"), account("broken")]), [adapter], cursorSecret);
     const result = await service.search({ query: {}, accounts: "*" });
     expect(result.pages[0]?.messages[0]?.ref.accountId).toBe("working");
     expect(result.failures).toEqual([{ accountId: "broken", code: "PROVIDER_UNAVAILABLE", message: "Temporary failure.", retryable: true }]);
   });
 
   it("requires explicit source account and same-call confirmation for writes", async () => {
-    const adapter = provider(); const service = new MultiAccountMailService(new InMemoryAccountRegistry([account("personal")]), [adapter]);
+    const adapter = provider(); const service = new MultiAccountMailService(new InMemoryAccountRegistry([account("personal")]), [adapter], cursorSecret);
     await expect(service.send({ accountId: "personal", message: { to: ["a@example.com"], subject: "x", text: "x" } } as never)).rejects.toMatchObject({ code: "INVALID_INPUT" });
     await expect(service.send({ accountId: "missing", message: { to: ["a@example.com"], subject: "x", text: "x" }, confirm: true })).rejects.toMatchObject({ code: "ACCOUNT_NOT_FOUND" });
     await service.send({ accountId: "personal", message: { to: ["a@example.com"], subject: "x", text: "x" }, confirm: true });
     expect(adapter.send).toHaveBeenCalledOnce();
   });
 
+  it("rejects cross-account bulk mutations instead of partially applying them", async () => {
+    const adapter = provider();
+    const service = new MultiAccountMailService(new InMemoryAccountRegistry([account("personal"), account("work")]), [adapter]);
+    await expect(service.trash({ refs: [{ accountId: "personal", messageId: "one" }, { accountId: "work", messageId: "two" }], confirm: true })).rejects.toMatchObject({ code: "INVALID_REFERENCE" });
+    await expect(service.archive({ refs: [{ accountId: "personal", messageId: "one" }, { accountId: "work", messageId: "two" }], confirm: true })).rejects.toMatchObject({ code: "INVALID_REFERENCE" });
+    await expect(service.setFlags({ refs: [{ accountId: "personal", messageId: "one" }, { accountId: "work", messageId: "two" }], changes: { read: true }, confirm: true })).rejects.toMatchObject({ code: "INVALID_REFERENCE" });
+    expect(adapter.trash).not.toHaveBeenCalled();
+    expect(adapter.archive).not.toHaveBeenCalled();
+    expect(adapter.setFlags).toBeUndefined();
+  });
+
   it("fails closed for unsupported capabilities and exposes no permanent-delete operation", async () => {
-    const service = new MultiAccountMailService(new InMemoryAccountRegistry([account("personal")]), [provider()]);
+    const service = new MultiAccountMailService(new InMemoryAccountRegistry([account("personal")]), [provider()], cursorSecret);
     await expect(service.getThread({ accountId: "personal", threadId: "t" })).rejects.toMatchObject({ code: "CAPABILITY_UNSUPPORTED" });
     expect("permanentDelete" in service).toBe(false);
   });

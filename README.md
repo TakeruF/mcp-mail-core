@@ -53,7 +53,7 @@ List configured accounts without exposing credential handles or tokens:
 npm run accounts:list
 ```
 
-The default metadata path is `~/Library/Application Support/mcp-mail-core/accounts.json`. It contains labels, roles, capabilities, status, provider identity, and opaque Keychain credential handles—not OAuth tokens. Override its directory with `MCP_MAIL_CORE_DATA_DIR`.
+The default metadata path is `~/Library/Application Support/mcp-mail-core/accounts.json`. It contains labels, roles, capabilities, status, provider identity, and opaque Keychain credential handles—not OAuth tokens. The same owner-only directory contains `cursor.key`, a random HMAC key used to authenticate cross-account pagination state across restarts. Override the directory with `MCP_MAIL_CORE_DATA_DIR`.
 
 ## Tool behavior
 

@@ -119,7 +119,7 @@ Not shared: token formats, IMAP/SMTP/OAuth implementations, MIME parsers, Gmail 
 
 Reads default to all accounts whose registry status is `ready`; this matches agent requests such as “find OpenAI across all my mail.” Explicit `accounts` narrows the request.
 
-Each returned page is grouped by account and contains at most `limitPerAccount` results. The aggregate cursor stores one opaque provider cursor per account and is fingerprint-bound to account selection, query, and page size. This design can return up to accounts × limit results, but it does not silently discard lower-ranked results after advancing a provider cursor. A global top-N merge without buffered leftovers was rejected because it can skip messages.
+Each returned page is grouped by account and contains at most `limitPerAccount` results. The aggregate cursor stores one opaque provider cursor per account, is fingerprint-bound to a canonicalized account selection/query/page size, and is authenticated with HMAC-SHA256. The local host persists a random owner-only signing key so cursors survive restarts and tampering fails closed. This design can return up to accounts × limit results, but it does not silently discard lower-ranked results after advancing a provider cursor. A global top-N merge without buffered leftovers was rejected because it can skip messages.
 
 Failures are returned as `{accountId,code,message,retryable}` beside successful pages. A failed account's position is retained for retry instead of advancing silently. Cross-provider order is not claimed to be globally stable because provider timestamp and search relevance semantics differ.
 
@@ -172,7 +172,6 @@ Remaining limitations:
 - QQ and iCloud adapters are not implemented in this repository and their production servers were not changed.
 - Gmail address parsing handles quoted commas, Reply-To, case-insensitive deduplication, and reply-all self-exclusion, but it is not a complete RFC 5322 parser and should be replaced by a hardened parser before broad deployment.
 - The Gmail adapter limits per-page metadata fetches to eight concurrent requests and retries idempotent reads at most three times. It does not yet coordinate a global per-account quota budget across concurrent searches.
-- Cross-account cursor payloads are opaque and query-bound, not cryptographically authenticated. Treat them as untrusted input; remote deployments should sign/encrypt them.
 - Account health is modeled and adapter health exists, but the CLI does not persist health refresh results automatically.
 - The server is local stdio only. Remote MCP auth and multi-tenant authorization are deliberately absent.
 - No live credential test was run in this work. The opt-in profile/metadata smoke test is isolated under `tests/live/` and normal tests exclude it.
@@ -180,7 +179,7 @@ Remaining limitations:
 
 ## 11. Recommended next steps
 
-1. Add a signed cross-account cursor codec and bounded per-account concurrency/backoff.
+1. Add a shared per-account quota budget and observability for concurrent searches.
 2. Add opt-in Gmail live smoke tests using a dedicated test account and metadata-only fixtures.
 3. Implement the iCloud adapter first; it is closest to the target safety contract.
 4. Harden QQ to the listed gates, then implement its adapter.

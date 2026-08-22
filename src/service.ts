@@ -9,7 +9,8 @@ import type { MailProviderAdapter, ProviderContext, ProviderMessage, SendResult 
 
 export class MultiAccountMailService {
   readonly #providers = new Map<string, MailProviderAdapter>();
-  public constructor(private readonly registry: AccountRegistry, providers: readonly MailProviderAdapter[]) {
+  public constructor(private readonly registry: AccountRegistry, providers: readonly MailProviderAdapter[], private readonly cursorSecret: Uint8Array) {
+    if (cursorSecret.byteLength < 32) throw new MailError("INVALID_INPUT", "A cursor signing key of at least 32 bytes is required.");
     for (const provider of providers) {
       if (this.#providers.has(provider.id)) throw new MailError("INVALID_INPUT", `Duplicate provider '${provider.id}'.`);
       this.#providers.set(provider.id, provider);
@@ -27,7 +28,7 @@ export class MultiAccountMailService {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new MailError("INVALID_INPUT", "limitPerAccount must be between 1 and 100.");
     const ids = selected.map((account) => account.id).sort();
     const fingerprint = queryFingerprint(ids, input.query, limit);
-    const cursor = input.cursor ? decodeCrossAccountCursor(input.cursor, fingerprint) : undefined;
+    const cursor = input.cursor ? decodeCrossAccountCursor(input.cursor, fingerprint, this.cursorSecret) : undefined;
     const work = selected.filter((account) => cursor?.cursors[account.id] !== null);
     const settled = await Promise.all(work.map(async (account): Promise<AccountSearchPage | AccountFailure> => {
       try {
@@ -58,7 +59,7 @@ export class MultiAccountMailService {
     return {
       pages,
       failures,
-      ...(hasNext ? { nextCursor: encodeCrossAccountCursor({ v: 1, fingerprint, cursors: nextCursors }) } : {}),
+      ...(hasNext ? { nextCursor: encodeCrossAccountCursor({ v: 1, fingerprint, cursors: nextCursors }, this.cursorSecret) } : {}),
     };
   }
 
@@ -150,6 +151,7 @@ export class MultiAccountMailService {
     if (refs.length < 1 || refs.length > 100) throw new MailError("INVALID_INPUT", "Mutations require 1 to 100 explicit message references.");
     const result = new Map<string, MessageRef[]>();
     for (const ref of refs) result.set(ref.accountId, [...(result.get(ref.accountId) ?? []), ref]);
+    if (result.size > 1) throw new MailError("INVALID_REFERENCE", "One mutation call cannot span multiple mail accounts.");
     return result;
   }
 
