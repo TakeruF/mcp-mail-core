@@ -176,7 +176,7 @@ Remaining limitations:
 - Account health is modeled and adapter health exists, but the CLI does not persist health refresh results automatically.
 - The server is local stdio only. Remote MCP auth and multi-tenant authorization are deliberately absent.
 - No live credential test was run in this work. The opt-in profile/metadata smoke test is isolated under `tests/live/` and normal tests exclude it.
-- Removal/revocation is a library administrative operation, not an MCP mail tool or standalone CLI yet.
+- Removal/revocation is deliberately an explicit-confirmation administrative CLI operation rather than an MCP mail tool.
 
 ## 11. Recommended next steps
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { GoogleTokenBroker, InMemoryGmailCredentialStore, MailError, createDesktopAuthorization } from "../src/index.js";
+import { GmailEnrollmentService, GoogleTokenBroker, InMemoryAccountRegistry, InMemoryGmailCredentialStore, MailError, createDesktopAuthorization, type RegisteredAccount } from "../src/index.js";
 
 describe("Google OAuth", () => {
   it("creates independent PKCE enrollment requests with offline consent", () => {
@@ -25,6 +25,24 @@ describe("Google OAuth", () => {
     const broker = new GoogleTokenBroker({ clientId: "client" }, store, vi.fn(async () => response({ error: "invalid_grant" }, 400)) as typeof fetch);
     await expect(broker.accessToken("revoked")).rejects.toEqual(expect.objectContaining<Partial<MailError>>({ code: "REAUTHORIZATION_REQUIRED" }));
     expect((await store.get("revoked"))?.refreshToken).toBe("old");
+  });
+
+  it("revokes and removes only the selected Gmail account metadata and credentials", async () => {
+    const gmailCapabilities = { search: true as const, nativeSearch: true, threads: "native" as const, labels: true, folders: false, attachments: true, drafts: true, send: true, reply: true, forward: true, archive: true, trash: true, permanentDelete: false, flags: ["read", "starred"] as const };
+    const accounts: RegisteredAccount[] = [
+      { id: "gmail-personal", provider: "gmail", label: "Personal", roles: [], capabilities: gmailCapabilities, status: "ready", credentialId: "gmail:gmail-personal" },
+      { id: "gmail-university", provider: "gmail", label: "University", roles: [], capabilities: gmailCapabilities, status: "ready", credentialId: "gmail:gmail-university" },
+    ];
+    const registry = new InMemoryAccountRegistry(accounts); const store = new InMemoryGmailCredentialStore();
+    await store.put("gmail:gmail-personal", { refreshToken: "personal-token", grantedScopes: [] });
+    await store.put("gmail:gmail-university", { refreshToken: "university-token", grantedScopes: [] });
+    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => { expect(String(init?.body)).toContain("personal-token"); return new Response(null, { status: 200 }); });
+    const tokens = new GoogleTokenBroker({ clientId: "client" }, store, fetchMock as typeof fetch);
+    const enrollment = new GmailEnrollmentService(registry, store, tokens, { profile: vi.fn() });
+    await enrollment.remove("gmail-personal", true);
+    expect(await registry.get("gmail-personal")).toBeUndefined(); expect(await store.get("gmail:gmail-personal")).toBeUndefined();
+    expect(await registry.get("gmail-university")).toBeDefined(); expect((await store.get("gmail:gmail-university"))?.refreshToken).toBe("university-token");
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });
 function response(value: unknown, status = 200): Response { return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } }); }

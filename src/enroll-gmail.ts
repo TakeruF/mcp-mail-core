@@ -41,7 +41,8 @@ async function receiveAuthorization(oauthClientId: string): Promise<{ code: stri
   authorization = createDesktopAuthorization({ clientId: oauthClientId }, `http://127.0.0.1:${address.port}/oauth/callback`);
   process.stderr.write(`Open this Google authorization URL if the browser does not open:\n${authorization.authorizationUrl}\n`);
   await promisify(execFile)("open", [authorization.authorizationUrl]);
-  try { return await completed; } finally { server.close(); }
+  const timeout = setTimeout(() => fail(new Error("Google OAuth enrollment timed out after five minutes.")), 5 * 60 * 1000);
+  try { return await completed; } finally { clearTimeout(timeout); server.close(); }
 }
 
 function required(name: string): string { const value = process.env[name]; if (!value) throw new Error(`${name} is required. See README.md.`); return value; }

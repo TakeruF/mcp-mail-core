@@ -47,6 +47,12 @@ See [the architecture and provider study](docs/multi-account-mail-core-architect
 
 6. Configure the MCP client to run `npm start` from this repository with `GOOGLE_OAUTH_CLIENT_ID` in its environment. Standard output is reserved for MCP traffic.
 
+List configured accounts without exposing credential handles or tokens:
+
+```sh
+npm run accounts:list
+```
+
 The default metadata path is `~/Library/Application Support/mcp-mail-core/accounts.json`. It contains labels, roles, capabilities, status, provider identity, and opaque Keychain credential handles—not OAuth tokens. Override its directory with `MCP_MAIL_CORE_DATA_DIR`.
 
 ## Tool behavior
@@ -69,6 +75,15 @@ Normal tests use synthetic data and mocked HTTP. The opt-in live smoke test is i
 
 ## Removing an account
 
-The library exposes `GmailEnrollmentService.remove(accountId, true)`, which revokes the Google grant, removes the Keychain item, and then removes account metadata. A management CLI/MCP tool is intentionally not exposed in v0.2 because account enrollment and revocation are administrative operations, not mail-agent operations.
+Removal is an administrative CLI operation, not an MCP mail tool. It requires confirmation in the same command, requests Google token revocation, removes the Keychain item, and then removes account metadata:
+
+```sh
+GOOGLE_OAUTH_CLIENT_ID='your-client-id' \
+MCP_MAIL_ACCOUNT_ID='gmail-personal' \
+MCP_MAIL_CONFIRM_REMOVE=true \
+npm run remove:gmail
+```
+
+For an exceptional local cleanup where the Google grant must be preserved, add `MCP_MAIL_SKIP_REVOCATION=true`. This still removes the local Keychain item and registry record.
 
 If revocation fails, metadata is preserved rather than claiming removal. Google notes that revocation affects the project's grant and may invalidate tokens more broadly than one local account record; review the architecture report before using it in a shared remote deployment.
