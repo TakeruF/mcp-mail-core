@@ -47,7 +47,7 @@ The Gmail adapter uses the official API because it provides materially better na
 - Refreshes are account-scoped and coalesced per credential. A refresh response without a new refresh token preserves the prior one. `invalid_grant` marks reauthorization as required rather than retrying indefinitely.
 - External OAuth apps in Testing generally receive refresh tokens that expire after seven days when Gmail scopes are requested. This is unsuitable for persistent operation.
 - Revocation uses Google's revocation endpoint. Google documents that revocation removes all scopes granted to the project and can invalidate related tokens, so remote multi-user removal needs careful product policy.
-- Current Gmail API quota documentation lists 1,200,000 quota units per minute per project, 6,000 per minute per user per project, and an 80,000,000 daily project threshold for projects under the post-2026-05-01 model. Methods have different costs (for example list 5, get 20, send 100). Retryable rate failures require bounded exponential backoff; the v0.2 adapter maps them but does not yet retry automatically.
+- Current Gmail API quota documentation lists 1,200,000 quota units per minute per project, 6,000 per minute per user per project, and an 80,000,000 daily project threshold for projects under the post-2026-05-01 model. Methods have different costs (for example list 5, get 20, send 100). The adapter applies bounded `Retry-After`/exponential backoff only to idempotent GET requests. It deliberately does not automatically retry sends or mutations whose outcome may be ambiguous.
 
 Primary sources: [Gmail API reference](https://developers.google.com/workspace/gmail/api/reference/rest), [OAuth scopes](https://developers.google.com/workspace/gmail/api/auth/scopes), [desktop OAuth and revocation](https://developers.google.com/identity/protocols/oauth2/native-app), [server-side/offline OAuth](https://developers.google.com/identity/protocols/oauth2/web-server), [search differences](https://developers.google.com/workspace/gmail/api/guides/filtering), [threads](https://developers.google.com/workspace/gmail/api/guides/threads), [labels](https://developers.google.com/workspace/gmail/api/guides/labels), [sending](https://developers.google.com/workspace/gmail/api/guides/sending), and [quota](https://developers.google.com/workspace/gmail/api/reference/quota).
 
@@ -171,7 +171,7 @@ Remaining limitations:
 
 - QQ and iCloud adapters are not implemented in this repository and their production servers were not changed.
 - Gmail MIME address parsing is intentionally small and should be replaced by a hardened parser before broad deployment.
-- The Gmail adapter limits per-page metadata fetches to eight concurrent requests but has no exponential-backoff implementation yet.
+- The Gmail adapter limits per-page metadata fetches to eight concurrent requests and retries idempotent reads at most three times. It does not yet coordinate a global per-account quota budget across concurrent searches.
 - Cross-account cursor payloads are opaque and query-bound, not cryptographically authenticated. Treat them as untrusted input; remote deployments should sign/encrypt them.
 - Account health is modeled and adapter health exists, but the CLI does not persist health refresh results automatically.
 - The server is local stdio only. Remote MCP auth and multi-tenant authorization are deliberately absent.

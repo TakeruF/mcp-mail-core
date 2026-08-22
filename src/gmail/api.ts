@@ -14,7 +14,13 @@ export type GmailMessage = { id: string; threadId?: string; labelIds?: string[];
 export type GmailDraft = { id: string; message: GmailMessage };
 
 export class GmailApi {
-  public constructor(private readonly credentialId: string, private readonly tokens: GoogleTokenBroker, private readonly fetchImpl: typeof fetch = fetch) {}
+  public constructor(
+    private readonly credentialId: string,
+    private readonly tokens: GoogleTokenBroker,
+    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly sleep: (milliseconds: number) => Promise<void> = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    private readonly random: () => number = Math.random,
+  ) {}
 
   public profile(accessToken?: string): Promise<{ emailAddress: string }> {
     return this.request("/users/me/profile", {}, accessToken);
@@ -42,7 +48,15 @@ export class GmailApi {
 
   private async request<T>(path: string, init: RequestInit = {}, tokenOverride?: string): Promise<T> {
     const token = tokenOverride ?? await this.tokens.accessToken(this.credentialId);
-    const response = await this.fetchImpl(`https://gmail.googleapis.com/gmail/v1${path}`, { ...init, headers: { authorization: `Bearer ${token}`, ...(init.body ? { "content-type": "application/json" } : {}), ...init.headers } });
+    const method = (init.method ?? "GET").toUpperCase();
+    const attempts = method === "GET" ? 3 : 1;
+    let response: Response | undefined;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      response = await this.fetchImpl(`https://gmail.googleapis.com/gmail/v1${path}`, { ...init, headers: { authorization: `Bearer ${token}`, ...(init.body ? { "content-type": "application/json" } : {}), ...init.headers } });
+      if (response.ok || !isRetryableStatus(response.status) || attempt === attempts - 1) break;
+      await this.sleep(retryDelay(response.headers.get("retry-after"), attempt, this.random));
+    }
+    if (!response) throw new MailError("PROVIDER_UNAVAILABLE", "Gmail did not return a response.", true);
     if (!response.ok) {
       let reason = "";
       try { reason = JSON.stringify(await response.json()); } catch { /* redacted below */ }
@@ -58,3 +72,9 @@ export class GmailApi {
 }
 
 function json(value: unknown): string { return JSON.stringify(value); }
+function isRetryableStatus(status: number): boolean { return status === 429 || status >= 500; }
+function retryDelay(retryAfter: string | null, attempt: number, random: () => number): number {
+  const retryAfterSeconds = retryAfter === null ? Number.NaN : Number(retryAfter);
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) return Math.min(retryAfterSeconds * 1000, 5_000);
+  return Math.min(250 * 2 ** attempt + Math.floor(random() * 100), 2_000);
+}

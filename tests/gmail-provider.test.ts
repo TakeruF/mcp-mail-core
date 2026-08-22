@@ -22,6 +22,36 @@ describe("Gmail provider", () => {
     expect(requests[0]).toContain("q=from%3Aopenai.com");
   });
 
+  it("retries bounded idempotent reads after a transient Gmail response", async () => {
+    let listAttempts = 0;
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/messages?")) {
+        listAttempts += 1;
+        if (listAttempts === 1) return new Response(JSON.stringify({ error: "rateLimitExceeded" }), { status: 429, headers: { "retry-after": "0" } });
+        return response({ messages: [{ id: "m1" }] });
+      }
+      return response(message("m1", "t1", []));
+    });
+    const adapter = await adapterWithToken(fetchMock as typeof fetch);
+    expect((await adapter.search(context, {}, undefined, 1)).messages).toHaveLength(1);
+    expect(listAttempts).toBe(2);
+  });
+
+  it("does not automatically retry non-idempotent sends", async () => {
+    let sendAttempts = 0;
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith("/messages/send")) {
+        sendAttempts += 1;
+        return response({ error: "backendError" }, 503);
+      }
+      return response(message("m1", "t1", []));
+    });
+    const adapter = await adapterWithToken(fetchMock as typeof fetch);
+    await expect(adapter.send(context, { to: ["a@example.com"], subject: "Once", text: "body" })).rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE", retryable: true });
+    expect(sendAttempts).toBe(1);
+  });
+
   it("handles native threads, body parsing, and attachments", async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
