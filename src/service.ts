@@ -2,7 +2,7 @@ import { publicAccount, type AccountRegistry } from "./account-registry.js";
 import { decodeCrossAccountCursor, encodeCrossAccountCursor, queryFingerprint } from "./cursor.js";
 import type {
   AccountFailure, AccountSearchPage, AttachmentRef, Confirmed, CrossAccountSearchPage, DraftRef, MailAccount,
-  MessageDetail, MessageRef, OutgoingMessage, RegisteredAccount, SearchQuery, ThreadRef,
+  MessageDetail, MessageRef, OutgoingMessage, RegisteredAccount, ReplyMessage, SearchQuery, ThreadRef,
 } from "./domain.js";
 import { MailError, publicFailure } from "./errors.js";
 import type { MailProviderAdapter, ProviderContext, ProviderMessage, SendResult } from "./provider.js";
@@ -110,7 +110,7 @@ export class MultiAccountMailService {
     return provider.sendDraft(context, input.ref.draftId);
   }
 
-  public async reply(input: Confirmed<{ ref: MessageRef; message: Omit<OutgoingMessage, "subject" | "to"> }>) {
+  public async reply(input: Confirmed<{ ref: MessageRef; message: ReplyMessage }>) {
     this.assertConfirmed(input);
     const { provider, context } = await this.resolveWrite(input.ref.accountId, "reply");
     if (!provider.reply) throw new MailError("CAPABILITY_UNSUPPORTED", "Reply is unsupported.");

@@ -67,5 +67,5 @@ describe("multi-account core", () => {
 });
 
 function detail(id: string): ProviderMessage {
-  return { providerMessageId: id, subject: "Subject", from: [{ address: "sender@example.com" }], to: [], cc: [], unread: false, starred: false, snippet: "", hasAttachments: false, bodyText: "body", bodyTruncated: false, attachments: [], references: [] };
+  return { providerMessageId: id, subject: "Subject", from: [{ address: "sender@example.com" }], to: [], cc: [], replyTo: [], unread: false, starred: false, snippet: "", hasAttachments: false, bodyText: "body", bodyTruncated: false, attachments: [], references: [] };
 }

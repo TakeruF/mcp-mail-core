@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { GmailProvider, GoogleTokenBroker, InMemoryGmailCredentialStore, gmailQuery, type ProviderContext } from "../src/index.js";
 
-const context: ProviderContext = { account: { id: "gmail-personal", provider: "gmail", label: "Personal", roles: ["personal"], status: "ready", capabilities: { search: true, nativeSearch: true, threads: "native", labels: true, folders: false, attachments: true, drafts: true, send: true, reply: true, forward: true, archive: true, trash: true, permanentDelete: false, flags: ["read", "starred"] } }, credentialId: "gmail:gmail-personal" };
+const context: ProviderContext = { account: { id: "gmail-personal", provider: "gmail", label: "Personal", roles: ["personal"], status: "ready", providerIdentity: "me@example.com", capabilities: { search: true, nativeSearch: true, threads: "native", labels: true, folders: false, attachments: true, drafts: true, send: true, reply: true, forward: true, archive: true, trash: true, permanentDelete: false, flags: ["read", "starred"] } }, credentialId: "gmail:gmail-personal" };
 
 describe("Gmail provider", () => {
   it("preserves native query, labels, dates, unread, and attachment filters", () => {
@@ -86,6 +86,29 @@ describe("Gmail provider", () => {
     const replyBody = JSON.parse(calls.find((call) => call.url.endsWith("/messages/send"))?.body ?? "{}") as { raw: string; threadId: string };
     expect(replyBody.threadId).toBe("t1");
     expect(Buffer.from(replyBody.raw, "base64url").toString()).toContain("In-Reply-To: <m1@example.com>");
+  });
+
+  it("honors Reply-To and builds a deduplicated reply-all without the source account", async () => {
+    const sentBodies: string[] = [];
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/messages/send")) { sentBodies.push(String(init?.body)); return response({ id: "reply", threadId: "t1" }); }
+      const value = message("m1", "t1", []);
+      value.payload.headers.push(
+        { name: "From", value: '"Sender, Primary" <sender@example.com>' },
+        { name: "Reply-To", value: "replies@example.com" },
+        { name: "To", value: "me@example.com, teammate@example.com" },
+        { name: "Cc", value: "Teammate <TEAMMATE@example.com>, observer@example.com" },
+      );
+      return response(value);
+    });
+    const adapter = await adapterWithToken(fetchMock as typeof fetch); const original = await adapter.getMessage(context, "m1");
+    expect(original.from[0]).toEqual({ name: "Sender, Primary", address: "sender@example.com" });
+    await adapter.reply(context, original, { text: "reply", replyAll: true, cc: ["extra@example.com"] });
+    const payload = JSON.parse(sentBodies[0] ?? "{}") as { raw: string }; const mime = Buffer.from(payload.raw, "base64url").toString();
+    expect(mime).toContain("To: replies@example.com");
+    expect(mime).toContain("Cc: teammate@example.com, observer@example.com, extra@example.com");
+    expect(mime).not.toContain("Cc: me@example.com");
   });
 
   it("forwards the bounded original RFC 822 message and preserves caller attachments", async () => {

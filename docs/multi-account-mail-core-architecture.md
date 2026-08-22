@@ -170,7 +170,7 @@ Automated mocked tests cover independent credentials, overwrite rejection, selec
 Remaining limitations:
 
 - QQ and iCloud adapters are not implemented in this repository and their production servers were not changed.
-- Gmail MIME address parsing is intentionally small and should be replaced by a hardened parser before broad deployment.
+- Gmail address parsing handles quoted commas, Reply-To, case-insensitive deduplication, and reply-all self-exclusion, but it is not a complete RFC 5322 parser and should be replaced by a hardened parser before broad deployment.
 - The Gmail adapter limits per-page metadata fetches to eight concurrent requests and retries idempotent reads at most three times. It does not yet coordinate a global per-account quota budget across concurrent searches.
 - Cross-account cursor payloads are opaque and query-bound, not cryptographically authenticated. Treat them as untrusted input; remote deployments should sign/encrypt them.
 - Account health is modeled and adapter health exists, but the CLI does not persist health refresh results automatically.
@@ -184,5 +184,5 @@ Remaining limitations:
 2. Add opt-in Gmail live smoke tests using a dedicated test account and metadata-only fixtures.
 3. Implement the iCloud adapter first; it is closest to the target safety contract.
 4. Harden QQ to the listed gates, then implement its adapter.
-5. Add a hardened RFC address parser and reply-all semantics shared by capable adapters.
+5. Replace the bounded built-in address parser with a fully RFC-tested parser before broad remote deployment.
 6. Only then evaluate one remote unified MCP deployment, with principal-to-account authorization and a production secret manager designed first.

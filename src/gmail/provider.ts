@@ -1,4 +1,4 @@
-import type { MailCapabilities, OutgoingMessage, ProviderMessageSummary, ProviderSearchPage, SearchQuery } from "../domain.js";
+import type { MailAddress, MailCapabilities, OutgoingMessage, ProviderMessageSummary, ProviderSearchPage, ReplyMessage, SearchQuery } from "../domain.js";
 import { MailError } from "../errors.js";
 import type { DraftResult, MailProviderAdapter, ProviderContext, ProviderMessage, ProviderThread, SendResult } from "../provider.js";
 import { GmailApi, type GmailHeader, type GmailMessage, type GmailPart } from "./api.js";
@@ -49,8 +49,25 @@ export class GmailProvider implements MailProviderAdapter {
   }
   public async sendDraft(context: ProviderContext, draftId: string): Promise<SendResult> { return sendResult(await this.api(context).sendDraft(draftId)); }
   public async send(context: ProviderContext, message: OutgoingMessage): Promise<SendResult> { return sendResult(await this.api(context).sendMessage(base64UrlMime(composeMime(message)))); }
-  public async reply(context: ProviderContext, original: ProviderMessage, message: Omit<OutgoingMessage, "subject" | "to">): Promise<SendResult> {
-    const reply: OutgoingMessage = { ...message, to: original.from.map((item) => item.address), subject: /^re:/i.test(original.subject) ? original.subject : `Re: ${original.subject}` };
+  public async reply(context: ProviderContext, original: ProviderMessage, message: ReplyMessage): Promise<SendResult> {
+    const to = deduplicateAddresses(original.replyTo.length ? original.replyTo : original.from);
+    if (!to.length) throw new MailError("INVALID_INPUT", "The original Gmail message has no reply address.");
+    const ownAddress = context.account.providerIdentity?.toLowerCase();
+    const replyAllCc = message.replyAll
+      ? [...original.to, ...original.cc].filter((address) => address.address.toLowerCase() !== ownAddress)
+      : [];
+    const cc = deduplicateAddresses([
+      ...replyAllCc,
+      ...(message.cc ?? []).map((address) => ({ address })),
+    ]).filter((address) => !to.some((recipient) => recipient.address.toLowerCase() === address.address.toLowerCase()));
+    const reply: OutgoingMessage = {
+      to: to.map((item) => item.address),
+      ...(cc.length ? { cc: cc.map((item) => item.address) } : {}),
+      ...(message.bcc ? { bcc: message.bcc } : {}),
+      ...(message.attachments ? { attachments: message.attachments } : {}),
+      text: message.text,
+      subject: /^re:/i.test(original.subject) ? original.subject : `Re: ${original.subject}`,
+    };
     return sendResult(await this.api(context).sendMessage(base64UrlMime(composeMime(reply, threadHeaders(original))), original.providerThreadId));
   }
   public async forward(context: ProviderContext, original: ProviderMessage, message: OutgoingMessage): Promise<SendResult> {
@@ -105,7 +122,7 @@ function toMessage(message: GmailMessage): ProviderMessage {
   const body = collectText(message.payload).join("\n"); const limit = 20_000;
   const internetMessageId = headers.get("message-id");
   const inReplyTo = headers.get("in-reply-to");
-  return { ...summary, cc: parseAddresses(headers.get("cc")), bodyText: body.length > limit ? `${body.slice(0, limit)}\n\n[truncated]` : body, bodyTruncated: body.length > limit,
+  return { ...summary, cc: parseAddresses(headers.get("cc")), replyTo: parseAddresses(headers.get("reply-to")), bodyText: body.length > limit ? `${body.slice(0, limit)}\n\n[truncated]` : body, bodyTruncated: body.length > limit,
     attachments: collectAttachments(message.payload), ...(internetMessageId ? { internetMessageId } : {}), ...(inReplyTo ? { inReplyTo } : {}), references: headers.get("references")?.split(/\s+/).filter(Boolean) ?? [] };
 }
 
@@ -122,12 +139,30 @@ function collectText(part: GmailPart | undefined): string[] {
 function headerMap(headers: GmailHeader[] | undefined): Map<string, string> { return new Map((headers ?? []).flatMap((item) => item.name && item.value ? [[item.name.toLowerCase(), item.value] as const] : [])); }
 function parseAddresses(value: string | undefined) {
   if (!value) return [];
-  return value.split(",").map((item) => {
+  return splitAddressList(value).map((item) => {
     const match = /^(.*?)\s*<([^>]+)>$/.exec(item.trim());
     if (!match) return { address: item.trim() };
     const name = match[1]?.replace(/^"|"$/g, "").trim();
     return { ...(name ? { name } : {}), address: match[2]! };
   });
+}
+function splitAddressList(value: string): string[] {
+  const values: string[] = []; let start = 0; let quoted = false; let escaped = false; let angleDepth = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (escaped) { escaped = false; continue; }
+    if (character === "\\" && quoted) { escaped = true; continue; }
+    if (character === '"') { quoted = !quoted; continue; }
+    if (!quoted && character === "<") angleDepth += 1;
+    else if (!quoted && character === ">") angleDepth = Math.max(0, angleDepth - 1);
+    else if (!quoted && angleDepth === 0 && character === ",") { values.push(value.slice(start, index).trim()); start = index + 1; }
+  }
+  values.push(value.slice(start).trim()); return values.filter(Boolean);
+}
+function deduplicateAddresses(addresses: readonly MailAddress[]): MailAddress[] {
+  const seen = new Set<string>(); const result: MailAddress[] = [];
+  for (const address of addresses) { const key = address.address.toLowerCase(); if (!seen.has(key)) { seen.add(key); result.push(address); } }
+  return result;
 }
 function dateValue(message: GmailMessage, headers: Map<string, string>): string | undefined { const value = message.internalDate ? Number(message.internalDate) : Date.parse(headers.get("date") ?? ""); return Number.isFinite(value) ? new Date(value).toISOString() : undefined; }
 function threadHeaders(message: ProviderMessage) { return { ...(message.internetMessageId ? { messageId: message.internetMessageId } : {}), references: [...message.references, ...(message.internetMessageId ? [message.internetMessageId] : [])] }; }

@@ -1,6 +1,6 @@
 import type {
   MailAccount, MailCapabilities, MessageDetail, MessageSummary,
-  OutgoingMessage, ProviderSearchPage, SearchQuery,
+  OutgoingMessage, ProviderSearchPage, ReplyMessage, SearchQuery,
 } from "./domain.js";
 
 export type ProviderContext = Readonly<{ account: MailAccount; credentialId: string }>;
@@ -26,7 +26,7 @@ export interface MailProviderAdapter {
   updateDraft?(context: ProviderContext, providerDraftId: string, message: OutgoingMessage): Promise<DraftResult>;
   sendDraft?(context: ProviderContext, providerDraftId: string): Promise<SendResult>;
   send?(context: ProviderContext, message: OutgoingMessage): Promise<SendResult>;
-  reply?(context: ProviderContext, original: ProviderMessage, message: Omit<OutgoingMessage, "subject" | "to">): Promise<SendResult>;
+  reply?(context: ProviderContext, original: ProviderMessage, message: ReplyMessage): Promise<SendResult>;
   forward?(context: ProviderContext, original: ProviderMessage, message: OutgoingMessage): Promise<SendResult>;
   archive?(context: ProviderContext, providerMessageIds: readonly string[]): Promise<void>;
   trash?(context: ProviderContext, providerMessageIds: readonly string[]): Promise<void>;

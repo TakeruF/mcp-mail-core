@@ -75,6 +75,7 @@ export type AttachmentMetadata = Readonly<{
 
 export type MessageDetail = MessageSummary & Readonly<{
   cc: readonly MailAddress[];
+  replyTo: readonly MailAddress[];
   bodyText: string;
   bodyTruncated: boolean;
   attachments: readonly AttachmentMetadata[];
@@ -126,5 +127,7 @@ export type OutgoingMessage = Readonly<{
   text: string;
   attachments?: readonly OutgoingAttachment[];
 }>;
+
+export type ReplyMessage = Omit<OutgoingMessage, "subject" | "to"> & Readonly<{ replyAll?: boolean }>;
 
 export type Confirmed<T> = T & Readonly<{ confirm: true }>;
