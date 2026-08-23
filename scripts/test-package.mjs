@@ -26,14 +26,17 @@ try {
   await exec("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", artifact], { cwd: temporary });
   await exec("node", ["--input-type=module", "--eval", [
     "import { InMemoryAccountRegistry, MultiAccountMailService } from 'mcp-mail-core';",
+    "import { inspectProviderContract } from 'mcp-mail-core/testing';",
     "if (typeof InMemoryAccountRegistry !== 'function' || typeof MultiAccountMailService !== 'function') process.exit(1);",
+    "if (typeof inspectProviderContract !== 'function') process.exit(1);",
   ].join("\n")], { cwd: temporary });
 
   await writeFile(resolve(temporary, "contract.ts"), [
     "import type { MailProviderAdapter, ReplyMessage } from 'mcp-mail-core';",
+    "import { inspectProviderContract } from 'mcp-mail-core/testing';",
     "declare const adapter: MailProviderAdapter;",
     "const reply: ReplyMessage = { text: 'hello', replyAll: true };",
-    "void adapter; void reply;",
+    "void adapter; void reply; void inspectProviderContract;",
   ].join("\n"));
   await writeFile(resolve(temporary, "tsconfig.json"), JSON.stringify({
     compilerOptions: {

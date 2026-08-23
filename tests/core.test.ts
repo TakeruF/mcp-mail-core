@@ -13,6 +13,7 @@ function provider(overrides: Partial<MailProviderAdapter> = {}): MailProviderAda
     getMessage: vi.fn(async (_context, id) => detail(id)),
     send: vi.fn(async () => ({ providerMessageId: "sent" })),
     archive: vi.fn(async () => undefined), trash: vi.fn(async () => undefined),
+    setFlags: vi.fn(async () => undefined),
     ...overrides,
   };
 }
@@ -64,6 +65,7 @@ describe("multi-account core", () => {
     const draftCapabilities = { ...capabilities, drafts: true };
     const adapter = provider({
       capabilities: draftCapabilities,
+      createDraft: vi.fn(async () => ({ providerDraftId: "created", providerMessageId: "created-message" })),
       updateDraft: vi.fn(async () => ({
         providerDraftId: "replacement", providerMessageId: "replacement-message",
         previousDraftDisposition: "retained" as const,
@@ -95,7 +97,7 @@ describe("multi-account core", () => {
     await expect(service.setFlags({ refs: [{ accountId: "personal", messageId: "one" }, { accountId: "work", messageId: "two" }], changes: { read: true }, confirm: true })).rejects.toMatchObject({ code: "INVALID_REFERENCE" });
     expect(adapter.trash).not.toHaveBeenCalled();
     expect(adapter.archive).not.toHaveBeenCalled();
-    expect(adapter.setFlags).toBeUndefined();
+    expect(adapter.setFlags).not.toHaveBeenCalled();
   });
 
   it("fails closed for unsupported capabilities and exposes no permanent-delete operation", async () => {

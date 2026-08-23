@@ -6,12 +6,14 @@ import type {
 } from "./domain.js";
 import { MailError, publicFailure } from "./errors.js";
 import type { MailProviderAdapter, ProviderContext, ProviderMessage, SendResult } from "./provider.js";
+import { assertProviderContract } from "./provider-contract.js";
 
 export class MultiAccountMailService {
   readonly #providers = new Map<string, MailProviderAdapter>();
   public constructor(private readonly registry: AccountRegistry, providers: readonly MailProviderAdapter[], private readonly cursorSecret: Uint8Array) {
     if (cursorSecret.byteLength < 32) throw new MailError("INVALID_INPUT", "A cursor signing key of at least 32 bytes is required.");
     for (const provider of providers) {
+      assertProviderContract(provider);
       if (this.#providers.has(provider.id)) throw new MailError("INVALID_INPUT", `Duplicate provider '${provider.id}'.`);
       this.#providers.set(provider.id, provider);
     }

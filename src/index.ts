@@ -2,6 +2,7 @@ export * from "./account-registry.js";
 export * from "./domain.js";
 export * from "./errors.js";
 export * from "./provider.js";
+export * from "./provider-contract.js";
 export * from "./service.js";
 export * from "./mcp-tools.js";
 export * from "./server.js";
