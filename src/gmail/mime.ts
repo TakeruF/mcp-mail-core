@@ -3,14 +3,19 @@ import type { OutgoingMessage } from "../domain.js";
 import { MailError } from "../errors.js";
 
 export type ThreadHeaders = Readonly<{ messageId?: string; references?: readonly string[] }>;
+const EMAIL = /^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/u;
 
 export function composeMime(message: OutgoingMessage, thread?: ThreadHeaders): string {
   validateHeader(message.subject);
   if (message.subject.length > 998) throw new MailError("INVALID_INPUT", "Mail subjects cannot exceed 998 characters.");
   if (message.text.length > 500_000) throw new MailError("INVALID_INPUT", "Mail text exceeds the configured size limit.");
-  if (message.to.length > 100 || (message.cc?.length ?? 0) > 100 || (message.bcc?.length ?? 0) > 100) throw new MailError("INVALID_INPUT", "Mail recipient lists cannot exceed 100 addresses.");
+  const recipients = [...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])];
+  if (recipients.length > 100) throw new MailError("INVALID_INPUT", "Mail cannot contain more than 100 total recipients.");
   if ((message.attachments?.length ?? 0) > 10) throw new MailError("INVALID_INPUT", "Mail cannot contain more than 10 attachments.");
-  for (const address of [...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])]) validateHeader(address);
+  for (const address of recipients) {
+    validateHeader(address);
+    if (!EMAIL.test(address)) throw new MailError("INVALID_INPUT", "Mail recipients must be plain valid email addresses.");
+  }
   if (!message.to.length) throw new MailError("INVALID_INPUT", "At least one recipient is required.");
   const headers = [
     `To: ${message.to.join(", ")}`,
@@ -31,12 +36,14 @@ export function composeMime(message: OutgoingMessage, thread?: ThreadHeaders): s
   let totalAttachmentBytes = 0;
   for (const attachment of message.attachments) {
     validateHeader(attachment.filename);
+    if (!attachment.filename || attachment.filename.length > 255 || /[/\\]/u.test(attachment.filename)) throw new MailError("INVALID_INPUT", "Attachment filenames must be plain names of at most 255 characters.");
     const contentType = attachment.contentType ?? "application/octet-stream";
     if (!/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/.test(contentType)) throw new MailError("INVALID_INPUT", "Attachment contentType must be a simple MIME media type.");
     if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(attachment.contentBase64)) throw new MailError("INVALID_INPUT", "Attachment content must be canonical Base64.");
     const size = Buffer.byteLength(attachment.contentBase64, "base64");
     totalAttachmentBytes += size;
-    if (size > 5 * 1024 * 1024 || totalAttachmentBytes > 20 * 1024 * 1024) throw new MailError("INVALID_INPUT", "Outgoing attachments exceed the configured size limit.");
+    const perAttachmentLimit = contentType === "message/rfc822" ? 10 * 1024 * 1024 : 5 * 1024 * 1024;
+    if (size > perAttachmentLimit || totalAttachmentBytes > 20 * 1024 * 1024) throw new MailError("INVALID_INPUT", "Outgoing attachments exceed the configured size limit.");
     const filename = quotedParameter(attachment.filename);
     parts.push(`--${boundary}`, `Content-Type: ${contentType}; name="${filename}"`, "Content-Transfer-Encoding: base64", `Content-Disposition: attachment; filename="${filename}"`, "", attachment.contentBase64);
   }

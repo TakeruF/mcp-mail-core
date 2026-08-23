@@ -8,8 +8,10 @@ const messageRef = z.object({ accountId, messageId: z.string().min(1).max(4096) 
 const threadRef = z.object({ accountId, threadId: z.string().min(1).max(4096) }).strict();
 const attachmentRef = z.object({ accountId, messageId: z.string().min(1).max(4096), attachmentId: z.string().min(1).max(4096) }).strict();
 const draftRef = z.object({ accountId, draftId: z.string().min(1).max(4096) }).strict();
-const attachment = z.object({ filename: z.string().min(1).max(255), contentType: z.string().max(255).optional(), contentBase64: z.string().min(1) }).strict();
-const outgoing = z.object({ to: z.array(z.string().email()).min(1).max(100), cc: z.array(z.string().email()).max(100).optional(), bcc: z.array(z.string().email()).max(100).optional(), subject: z.string().max(998), text: z.string().max(500_000), attachments: z.array(attachment).max(10).optional() }).strict();
+const canonicalBase64 = z.string().max(Math.ceil(5 * 1024 * 1024 / 3) * 4).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u);
+const attachment = z.object({ filename: z.string().min(1).max(255).regex(/^[^\r\n/\\]+$/u), contentType: z.string().max(255).regex(/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u).optional(), contentBase64: canonicalBase64 }).strict();
+const outgoingObject = z.object({ to: z.array(z.string().email()).min(1).max(100), cc: z.array(z.string().email()).max(100).optional(), bcc: z.array(z.string().email()).max(100).optional(), subject: z.string().max(998), text: z.string().max(500_000), attachments: z.array(attachment).max(10).optional() }).strict();
+const outgoing = outgoingObject.superRefine(validateOutgoingBounds);
 const confirm = z.literal(true);
 
 export function buildMailServer(service: MultiAccountMailService): McpServer {
@@ -30,7 +32,7 @@ export function buildMailServer(service: MultiAccountMailService): McpServer {
   register("create_draft", "Create an unsent draft in one explicit account. Requires confirm=true.", z.object({ accountId, message: outgoing, replyTo: messageRef.optional(), confirm }).strict(), write, (input) => service.createDraft(compact(input) as Parameters<typeof service.createDraft>[0]));
   register("update_draft", "Replace a complete account-scoped draft. The result explicitly reports whether the previous draft was retained, trashed, or provider-managed. Requires confirm=true.", z.object({ ref: draftRef, message: outgoing, confirm }).strict(), write, (input) => service.updateDraft(compact(input) as Parameters<typeof service.updateDraft>[0]));
   register("send_draft", "Send one selected account-scoped draft. The result explicitly reports the post-send draft disposition; a retained draft warning means the message was sent and must not be resent. Requires confirm=true.", z.object({ ref: draftRef, confirm }).strict(), write, (input) => service.sendDraft(input));
-  register("reply_mail", "Reply from the account that owns the selected message. Honors Reply-To; replyAll excludes the source account and deduplicates recipients. Requires confirm=true.", z.object({ ref: messageRef, message: outgoing.omit({ to: true, subject: true }).extend({ replyAll: z.boolean().optional() }), confirm }).strict(), write, (input) => service.reply(compact(input) as Parameters<typeof service.reply>[0]));
+  register("reply_mail", "Reply from the account that owns the selected message. Honors Reply-To; replyAll excludes the source account and deduplicates recipients. Requires confirm=true.", z.object({ ref: messageRef, message: outgoingObject.omit({ to: true, subject: true }).extend({ replyAll: z.boolean().optional() }).superRefine(validateReplyBounds), confirm }).strict(), write, (input) => service.reply(compact(input) as Parameters<typeof service.reply>[0]));
   register("forward_mail", "Forward one selected message from its owning account to explicit recipients. Requires confirm=true.", z.object({ ref: messageRef, message: outgoing, confirm }).strict(), write, (input) => service.forward(compact(input) as Parameters<typeof service.forward>[0]));
   register("archive_mail", "Archive explicit account-scoped messages with provider-native semantics. Requires confirm=true.", z.object({ refs: z.array(messageRef).min(1).max(100), confirm }).strict(), mutate, (input) => service.archive(input));
   register("trash_mail", "Move explicit account-scoped messages to Trash. Permanent deletion is never performed. Requires confirm=true.", z.object({ refs: z.array(messageRef).min(1).max(100), confirm }).strict(), mutate, (input) => service.trash(input));
@@ -41,3 +43,19 @@ export function buildMailServer(service: MultiAccountMailService): McpServer {
 function result(value: unknown) { return { content: [{ type: "text" as const, text: JSON.stringify(value) }], structuredContent: (typeof value === "object" && value !== null ? value : { value }) as Record<string, unknown> }; }
 function failure(error: unknown) { const safe = { error: publicFailure(error) }; return { ...result(safe), isError: true }; }
 function compact<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
+
+function validateOutgoingBounds(value: z.infer<typeof outgoingObject>, context: z.RefinementCtx): void {
+  const recipients = value.to.length + (value.cc?.length ?? 0) + (value.bcc?.length ?? 0);
+  if (recipients > 100) context.addIssue({ code: z.ZodIssueCode.custom, message: "At most 100 total recipients are allowed." });
+  validateAttachmentTotal(value.attachments, context);
+}
+
+function validateReplyBounds(value: { cc?: string[] | undefined; bcc?: string[] | undefined; attachments?: z.infer<typeof attachment>[] | undefined }, context: z.RefinementCtx): void {
+  if ((value.cc?.length ?? 0) + (value.bcc?.length ?? 0) > 100) context.addIssue({ code: z.ZodIssueCode.custom, message: "At most 100 explicit reply recipients are allowed." });
+  validateAttachmentTotal(value.attachments, context);
+}
+
+function validateAttachmentTotal(attachments: readonly z.infer<typeof attachment>[] | undefined, context: z.RefinementCtx): void {
+  const total = (attachments ?? []).reduce((sum, item) => sum + Buffer.byteLength(item.contentBase64, "base64"), 0);
+  if (total > 20 * 1024 * 1024) context.addIssue({ code: z.ZodIssueCode.custom, message: "Outgoing attachments exceed the total size bound." });
+}

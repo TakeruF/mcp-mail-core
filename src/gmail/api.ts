@@ -10,8 +10,12 @@ export type GmailPart = {
   body?: { attachmentId?: string; size?: number; data?: string };
   parts?: GmailPart[];
 };
-export type GmailMessage = { id: string; threadId?: string; labelIds?: string[]; snippet?: string; internalDate?: string; payload?: GmailPart; raw?: string };
+export type GmailMessage = { id: string; threadId?: string; labelIds?: string[]; snippet?: string; internalDate?: string; sizeEstimate?: number; payload?: GmailPart; raw?: string };
 export type GmailDraft = { id: string; message: GmailMessage };
+export type GmailApiBounds = Readonly<{ requestTimeoutMs?: number; maxResponseBytes?: number }>;
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_RESPONSE_BYTES = 25 * 1024 * 1024;
 
 export class GmailApi {
   public constructor(
@@ -20,6 +24,7 @@ export class GmailApi {
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly sleep: (milliseconds: number) => Promise<void> = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
     private readonly random: () => number = Math.random,
+    private readonly bounds: GmailApiBounds = {},
   ) {}
 
   public profile(accessToken?: string): Promise<{ emailAddress: string }> {
@@ -52,14 +57,23 @@ export class GmailApi {
     const attempts = method === "GET" ? 3 : 1;
     let response: Response | undefined;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-      response = await this.fetchImpl(`https://gmail.googleapis.com/gmail/v1${path}`, { ...init, headers: { authorization: `Bearer ${token}`, ...(init.body ? { "content-type": "application/json" } : {}), ...init.headers } });
+      try {
+        response = await this.fetchImpl(`https://gmail.googleapis.com/gmail/v1${path}`, {
+          ...init,
+          signal: AbortSignal.timeout(this.bounds.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS),
+          headers: { authorization: `Bearer ${token}`, ...(init.body ? { "content-type": "application/json" } : {}), ...init.headers },
+        });
+      } catch {
+        throw new MailError("PROVIDER_UNAVAILABLE", "Gmail did not respond within the configured network boundary.", true);
+      }
       if (response.ok || !isRetryableStatus(response.status) || attempt === attempts - 1) break;
+      try { await response.body?.cancel(); } catch { /* best effort before retry */ }
       await this.sleep(retryDelay(response.headers.get("retry-after"), attempt, this.random));
     }
     if (!response) throw new MailError("PROVIDER_UNAVAILABLE", "Gmail did not return a response.", true);
     if (!response.ok) {
       let reason = "";
-      try { reason = JSON.stringify(await response.json()); } catch { /* redacted below */ }
+      try { reason = JSON.stringify(await readJsonBounded(response, 64 * 1024)); } catch { /* redacted below */ }
       if (response.status === 401) throw new MailError("REAUTHORIZATION_REQUIRED", "Gmail authorization is invalid.");
       if (response.status === 404) throw new MailError("MESSAGE_NOT_FOUND", "The Gmail message was not found.");
       if (response.status === 429) throw new MailError("RATE_LIMITED", "Gmail rate limit was reached.", true);
@@ -67,8 +81,37 @@ export class GmailApi {
       throw new MailError("INVALID_INPUT", `Gmail rejected the request (${response.status}${reason.includes("invalidArgument") ? ": invalid argument" : ""}).`);
     }
     if (response.status === 204) return undefined as T;
-    return await response.json() as T;
+    return await readJsonBounded(response, this.bounds.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES) as T;
   }
+}
+
+async function readJsonBounded(response: Response, maxBytes: number): Promise<unknown> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) throw responseTooLarge();
+  if (!response.body) throw new MailError("PROVIDER_UNAVAILABLE", "Gmail returned an empty response.");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) throw responseTooLarge();
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  try { return JSON.parse(new TextDecoder().decode(bytes)) as unknown; }
+  catch { throw new MailError("PROVIDER_UNAVAILABLE", "Gmail returned an invalid response."); }
+}
+
+function responseTooLarge(): MailError {
+  return new MailError("PROVIDER_UNAVAILABLE", "Gmail returned a response larger than the configured safety bound.");
 }
 
 function json(value: unknown): string { return JSON.stringify(value); }

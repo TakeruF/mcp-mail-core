@@ -6,6 +6,7 @@ import { base64UrlMime, composeMime } from "./mime.js";
 import type { GoogleTokenBroker } from "./oauth.js";
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+const MAX_RAW_FORWARD_BYTES = 10 * 1024 * 1024;
 
 export const GMAIL_CAPABILITIES: MailCapabilities = Object.freeze({
   search: true, nativeSearch: true, threads: "native", labels: true, folders: false,
@@ -35,9 +36,9 @@ export class GmailProvider implements MailProviderAdapter {
   public async getAttachment(context: ProviderContext, messageId: string, attachmentId: string) {
     const attachment = await this.api(context).getAttachment(messageId, attachmentId);
     const content = attachment.data ?? "";
-    const size = attachment.size ?? Buffer.byteLength(content, "base64url");
-    if (size > MAX_ATTACHMENT_BYTES) throw new MailError("INVALID_INPUT", `Attachments larger than ${MAX_ATTACHMENT_BYTES} bytes are not returned.`);
-    return { contentType: "application/octet-stream", contentBase64: Buffer.from(content, "base64url").toString("base64"), size };
+    const actualSize = Buffer.byteLength(content, "base64url");
+    if ((attachment.size ?? actualSize) > MAX_ATTACHMENT_BYTES || actualSize > MAX_ATTACHMENT_BYTES) throw new MailError("INVALID_INPUT", `Attachments larger than ${MAX_ATTACHMENT_BYTES} bytes are not returned.`);
+    return { contentType: "application/octet-stream", contentBase64: Buffer.from(content, "base64url").toString("base64"), size: actualSize };
   }
   public async createDraft(context: ProviderContext, message: OutgoingMessage, replyTo?: ProviderMessage): Promise<DraftResult> {
     const created = await this.api(context).createDraft(base64UrlMime(composeMime(message, replyTo ? threadHeaders(replyTo) : undefined)), replyTo?.providerThreadId);
@@ -52,20 +53,24 @@ export class GmailProvider implements MailProviderAdapter {
   }
   public async send(context: ProviderContext, message: OutgoingMessage): Promise<SendResult> { return sendResult(await this.api(context).sendMessage(base64UrlMime(composeMime(message)))); }
   public async reply(context: ProviderContext, original: ProviderMessage, message: ReplyMessage): Promise<SendResult> {
-    const to = deduplicateAddresses(original.replyTo.length ? original.replyTo : original.from);
-    if (!to.length) throw new MailError("INVALID_INPUT", "The original Gmail message has no reply address.");
     const ownAddress = context.account.providerIdentity?.toLowerCase();
-    const replyAllCc = message.replyAll
+    let to = deduplicateAddresses(original.replyTo.length ? original.replyTo : original.from)
+      .filter((address) => address.address.toLowerCase() !== ownAddress);
+    const replyAllCandidates = message.replyAll
       ? [...original.to, ...original.cc].filter((address) => address.address.toLowerCase() !== ownAddress)
       : [];
+    if (!to.length && replyAllCandidates.length) to = [replyAllCandidates.shift()!];
+    if (!to.length) throw new MailError("INVALID_INPUT", "The original Gmail message has no non-self reply address.");
     const cc = deduplicateAddresses([
-      ...replyAllCc,
+      ...replyAllCandidates,
       ...(message.cc ?? []).map((address) => ({ address })),
-    ]).filter((address) => !to.some((recipient) => recipient.address.toLowerCase() === address.address.toLowerCase()));
+    ]).filter((address) => address.address.toLowerCase() !== ownAddress && !to.some((recipient) => recipient.address.toLowerCase() === address.address.toLowerCase()));
+    const bcc = deduplicateAddresses((message.bcc ?? []).map((address) => ({ address })))
+      .filter((address) => address.address.toLowerCase() !== ownAddress && ![...to, ...cc].some((recipient) => recipient.address.toLowerCase() === address.address.toLowerCase()));
     const reply: OutgoingMessage = {
       to: to.map((item) => item.address),
       ...(cc.length ? { cc: cc.map((item) => item.address) } : {}),
-      ...(message.bcc ? { bcc: message.bcc } : {}),
+      ...(bcc.length ? { bcc: bcc.map((item) => item.address) } : {}),
       ...(message.attachments ? { attachments: message.attachments } : {}),
       text: message.text,
       subject: /^re:/i.test(original.subject) ? original.subject : `Re: ${original.subject}`,
@@ -75,6 +80,8 @@ export class GmailProvider implements MailProviderAdapter {
   public async forward(context: ProviderContext, original: ProviderMessage, message: OutgoingMessage): Promise<SendResult> {
     const raw = await this.api(context).getMessage(original.providerMessageId, "raw");
     if (!raw.raw) throw new MailError("PROVIDER_UNAVAILABLE", "Gmail did not return the original message for forwarding.");
+    const rawBytes = Buffer.byteLength(raw.raw, "base64url");
+    if ((raw.sizeEstimate ?? rawBytes) > MAX_RAW_FORWARD_BYTES || rawBytes > MAX_RAW_FORWARD_BYTES) throw new MailError("INVALID_INPUT", `Messages larger than ${MAX_RAW_FORWARD_BYTES} bytes cannot be forwarded.`);
     const forwarded: OutgoingMessage = {
       ...message,
       subject: message.subject || (/^fwd?:/i.test(original.subject) ? original.subject : `Fwd: ${original.subject}`),
