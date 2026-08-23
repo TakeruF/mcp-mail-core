@@ -77,7 +77,7 @@ See the [QQ integration guide](https://github.com/TakeruF/qq-mail-mcp/blob/agent
 
 `npm pack` now produces a bounded artifact containing compiled runtime, declarations, and this README—not source, tests, or local credentials. `npm run test:package` installs that artifact in a fresh temporary consumer and verifies runtime and TypeScript imports. Every CI run uploads the tarball and `SHA256SUMS` as a commit-scoped GitHub Actions artifact.
 
-The package remains `private: true`: CI artifacts are integration inputs, not a claim that an npm release or license decision has been completed. Do not publish it to a public registry until repository licensing and release ownership are explicitly settled.
+The project is MIT licensed. The package remains `private: true` because v0.3 is distributed first as a checksum-bearing GitHub Release artifact; npm publication is intentionally deferred until the release workflow has been exercised by the QQ and iCloud consumers.
 
 ## Tool behavior
 

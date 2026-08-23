@@ -15,7 +15,7 @@ try {
 
   const artifact = resolve(temporary, filename);
   const files = new Set(packed[0]?.files?.map((entry) => entry.path) ?? []);
-  for (const required of ["dist/index.js", "dist/index.d.ts", "README.md", "package.json"]) {
+  for (const required of ["dist/index.js", "dist/index.d.ts", "README.md", "LICENSE", "package.json"]) {
     if (!files.has(required)) throw new Error(`Package artifact is missing ${required}.`);
   }
   if ([...files].some((path) => path.startsWith("src/") || path.startsWith("tests/"))) {

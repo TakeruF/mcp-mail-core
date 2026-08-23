@@ -1,6 +1,7 @@
 {
   "name": "mcp-mail-core",
   "version": "0.3.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "engines": {
@@ -18,7 +19,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
