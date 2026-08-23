@@ -1,6 +1,7 @@
 export * from "./account-registry.js";
 export * from "./domain.js";
 export * from "./errors.js";
+export * from "./host.js";
 export * from "./provider.js";
 export * from "./provider-contract.js";
 export * from "./service.js";
