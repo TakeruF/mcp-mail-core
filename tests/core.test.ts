@@ -60,6 +60,33 @@ describe("multi-account core", () => {
     expect(adapter.send).toHaveBeenCalledOnce();
   });
 
+  it("preserves explicit draft cleanup outcomes so callers never infer a resend", async () => {
+    const draftCapabilities = { ...capabilities, drafts: true };
+    const adapter = provider({
+      capabilities: draftCapabilities,
+      updateDraft: vi.fn(async () => ({
+        providerDraftId: "replacement", providerMessageId: "replacement-message",
+        previousDraftDisposition: "retained" as const,
+        warning: "The replacement exists, but the previous draft remains.",
+      })),
+      sendDraft: vi.fn(async () => ({
+        providerMessageId: "sent",
+        draftDisposition: "retained" as const,
+        warning: "The message was sent. Do not resend; remove the retained draft manually.",
+      })),
+    });
+    const draftAccount: RegisteredAccount = { ...account("personal"), capabilities: draftCapabilities };
+    const service = new MultiAccountMailService(new InMemoryAccountRegistry([draftAccount]), [adapter], cursorSecret);
+    await expect(service.updateDraft({
+      ref: { accountId: "personal", draftId: "old" },
+      message: { to: ["a@example.com"], subject: "replacement", text: "body" },
+      confirm: true,
+    })).resolves.toMatchObject({ previousDraftDisposition: "retained", warning: expect.stringContaining("previous draft") });
+    await expect(service.sendDraft({ ref: { accountId: "personal", draftId: "replacement" }, confirm: true })).resolves.toMatchObject({
+      providerMessageId: "sent", draftDisposition: "retained", warning: expect.stringContaining("Do not resend"),
+    });
+  });
+
   it("rejects cross-account bulk mutations instead of partially applying them", async () => {
     const adapter = provider();
     const service = new MultiAccountMailService(new InMemoryAccountRegistry([account("personal"), account("work")]), [adapter], cursorSecret);

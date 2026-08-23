@@ -1,6 +1,6 @@
 import type { MailAddress, MailCapabilities, OutgoingMessage, ProviderMessageSummary, ProviderSearchPage, ReplyMessage, SearchQuery } from "../domain.js";
 import { MailError } from "../errors.js";
-import type { DraftResult, MailProviderAdapter, ProviderContext, ProviderMessage, ProviderThread, SendResult } from "../provider.js";
+import type { DraftReplaceResult, DraftResult, DraftSendResult, MailProviderAdapter, ProviderContext, ProviderMessage, ProviderThread, SendResult } from "../provider.js";
 import { GmailApi, type GmailHeader, type GmailMessage, type GmailPart } from "./api.js";
 import { base64UrlMime, composeMime } from "./mime.js";
 import type { GoogleTokenBroker } from "./oauth.js";
@@ -43,11 +43,13 @@ export class GmailProvider implements MailProviderAdapter {
     const created = await this.api(context).createDraft(base64UrlMime(composeMime(message, replyTo ? threadHeaders(replyTo) : undefined)), replyTo?.providerThreadId);
     return { providerDraftId: created.id, providerMessageId: created.message.id };
   }
-  public async updateDraft(context: ProviderContext, draftId: string, message: OutgoingMessage): Promise<DraftResult> {
+  public async updateDraft(context: ProviderContext, draftId: string, message: OutgoingMessage): Promise<DraftReplaceResult> {
     const updated = await this.api(context).updateDraft(draftId, base64UrlMime(composeMime(message)));
-    return { providerDraftId: updated.id, providerMessageId: updated.message.id };
+    return { providerDraftId: updated.id, providerMessageId: updated.message.id, previousDraftDisposition: "provider-managed" };
   }
-  public async sendDraft(context: ProviderContext, draftId: string): Promise<SendResult> { return sendResult(await this.api(context).sendDraft(draftId)); }
+  public async sendDraft(context: ProviderContext, draftId: string): Promise<DraftSendResult> {
+    return { ...sendResult(await this.api(context).sendDraft(draftId)), draftDisposition: "provider-managed" };
+  }
   public async send(context: ProviderContext, message: OutgoingMessage): Promise<SendResult> { return sendResult(await this.api(context).sendMessage(base64UrlMime(composeMime(message)))); }
   public async reply(context: ProviderContext, original: ProviderMessage, message: ReplyMessage): Promise<SendResult> {
     const to = deduplicateAddresses(original.replyTo.length ? original.replyTo : original.from);

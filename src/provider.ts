@@ -13,6 +13,15 @@ export type ProviderMessage = Omit<MessageDetail, "ref" | "threadRef" | "attachm
 export type ProviderThread = Readonly<{ messages: readonly ProviderMessage[] }>;
 export type SendResult = Readonly<{ providerMessageId: string; providerThreadId?: string }>;
 export type DraftResult = Readonly<{ providerDraftId: string; providerMessageId: string }>;
+export type DraftCleanupDisposition = "trashed" | "retained" | "provider-managed";
+export type DraftReplaceResult = DraftResult & Readonly<{
+  previousDraftDisposition: DraftCleanupDisposition;
+  warning?: string;
+}>;
+export type DraftSendResult = SendResult & Readonly<{
+  draftDisposition: DraftCleanupDisposition;
+  warning?: string;
+}>;
 
 export interface MailProviderAdapter {
   readonly id: string;
@@ -23,8 +32,8 @@ export interface MailProviderAdapter {
   getThread?(context: ProviderContext, providerThreadId: string): Promise<ProviderThread>;
   getAttachment?(context: ProviderContext, providerMessageId: string, attachmentId: string): Promise<{ contentType: string; filename?: string; contentBase64: string; size: number }>;
   createDraft?(context: ProviderContext, message: OutgoingMessage, replyTo?: ProviderMessage): Promise<DraftResult>;
-  updateDraft?(context: ProviderContext, providerDraftId: string, message: OutgoingMessage): Promise<DraftResult>;
-  sendDraft?(context: ProviderContext, providerDraftId: string): Promise<SendResult>;
+  updateDraft?(context: ProviderContext, providerDraftId: string, message: OutgoingMessage): Promise<DraftReplaceResult>;
+  sendDraft?(context: ProviderContext, providerDraftId: string): Promise<DraftSendResult>;
   send?(context: ProviderContext, message: OutgoingMessage): Promise<SendResult>;
   reply?(context: ProviderContext, original: ProviderMessage, message: ReplyMessage): Promise<SendResult>;
   forward?(context: ProviderContext, original: ProviderMessage, message: OutgoingMessage): Promise<SendResult>;

@@ -86,8 +86,8 @@ describe("Gmail provider", () => {
     });
     const adapter = await adapterWithToken(fetchMock as typeof fetch);
     expect(await adapter.createDraft(context, { to: ["a@example.com"], subject: "Draft", text: "body" })).toMatchObject({ providerDraftId: "d1" });
-    expect(await adapter.updateDraft(context, "d1", { to: ["a@example.com"], subject: "Draft 2", text: "body" })).toMatchObject({ providerMessageId: "draft-message-2" });
-    expect(await adapter.sendDraft(context, "d1")).toMatchObject({ providerMessageId: "sent-draft" });
+    expect(await adapter.updateDraft(context, "d1", { to: ["a@example.com"], subject: "Draft 2", text: "body" })).toMatchObject({ providerMessageId: "draft-message-2", previousDraftDisposition: "provider-managed" });
+    expect(await adapter.sendDraft(context, "d1")).toMatchObject({ providerMessageId: "sent-draft", draftDisposition: "provider-managed" });
     const original = await adapter.getMessage(context, "m1");
     await adapter.reply(context, original, { text: "reply" });
     const replyBody = JSON.parse(calls.find((call) => call.url.endsWith("/messages/send"))?.body ?? "{}") as { raw: string; threadId: string };
