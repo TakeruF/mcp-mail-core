@@ -1,6 +1,6 @@
 # mcp-mail-core
 
-`mcp-mail-core` is a safety-first, multi-account mail MCP server and provider adapter library. The executable v0.3 slice supports multiple independently authorized Gmail accounts through the official Gmail API and provides the versioned contract used by the sibling QQ Mail and iCloud Mail adapters. Their v0.2 integrations completed provider-repository validation and rollout; they must adopt the v0.3 draft-disposition result types before repinning to this release.
+`mcp-mail-core` is a safety-first, multi-account mail MCP server and provider adapter library. The executable v0.3 slice supports multiple independently authorized Gmail accounts through the official Gmail API and provides the versioned contract used by the independent Gmail, QQ Mail, and iCloud Mail provider repositories. All three provider repositories pin the checksummed Core v0.3 release artifact and validate against its generated runtime and declarations.
 
 ## What is implemented
 
@@ -67,11 +67,13 @@ Set `MCP_MAIL_ACCOUNT_ID` to check only one account. A revoked or expired grant 
 
 The default metadata path is `~/Library/Application Support/mcp-mail-core/accounts.json`. It contains labels, roles, capabilities, status, provider identity, and opaque Keychain credential handles—not OAuth tokens. The same owner-only directory contains `cursor.key`, a random HMAC key used to authenticate cross-account pagination state across restarts. Override the directory with `MCP_MAIL_CORE_DATA_DIR`.
 
-## QQ and iCloud adapters
+## Provider packages and embedded Gmail rollback
 
-The sibling QQ repository exports `QQMailCoreAdapter`; the iCloud repository exports `ICloudMailCoreAdapter`, secret-free account metadata, an injected credential-store contract, and a local macOS Keychain implementation. Their IMAP, SMTP, MIME, identifier, cursor, credential, and remote OAuth behavior remains provider-owned. Core owns account provenance, fan-out, confirmation, capability checks, aggregate cursor authentication, and provider-neutral MCP tools.
+[`multi-gmail-mcp`](https://github.com/TakeruF/multi-gmail-mcp) exports the Gmail provider, OAuth PKCE/token broker, MIME implementation, Keychain credential store, and multi-account administration commands. It preserves the existing Core Gmail registry paths and Keychain service so cutover and rollback do not require copying secrets. The built-in Gmail runtime remains available in Core v0.3 as the initial rollback path while the independent package completes opt-in live validation.
 
-See the [QQ integration guide](https://github.com/TakeruF/qq-mail-mcp/blob/agent/qq-mail-mcp/docs/mcp-mail-core-adapter.md), the [iCloud integration guide](https://github.com/TakeruF/icloud-mail-mcp/blob/main/docs/mcp-mail-core-integration.md), and the [v0.3 migration guide](docs/v0.3-migration.md). The provider repositories currently pin the stable v0.2 artifact; v0.3 adoption is an explicit migration rather than an implicit contract change.
+The sibling QQ repository exports `QQMailCoreAdapter`; the iCloud repository exports `ICloudMailCoreAdapter`, secret-free account metadata, an injected credential-store contract, and a local macOS Keychain implementation. Provider-specific API/IMAP, SMTP, MIME, identifier, cursor, credential, and remote OAuth behavior remains provider-owned. Core owns account provenance, fan-out, confirmation, capability checks, aggregate cursor authentication, and provider-neutral MCP tools.
+
+See the [Gmail migration guide](https://github.com/TakeruF/multi-gmail-mcp/blob/main/docs/migration-from-core.md), the [QQ integration guide](https://github.com/TakeruF/qq-mail-mcp/blob/agent/qq-mail-mcp/docs/mcp-mail-core-adapter.md), the [iCloud integration guide](https://github.com/TakeruF/icloud-mail-mcp/blob/main/docs/mcp-mail-core-integration.md), and the [v0.3 migration guide](docs/v0.3-migration.md).
 
 ## Package artifact
 
