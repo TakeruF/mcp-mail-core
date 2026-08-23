@@ -26,6 +26,18 @@ jobs:
       - run: npm run build
       - run: npm run test:package
       - run: npm audit --omit=dev
+      - name: Build versioned package artifact
+        run: |
+          mkdir -p artifacts
+          npm pack --pack-destination artifacts
+          sha256sum artifacts/*.tgz > artifacts/SHA256SUMS
+      - name: Upload versioned package artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mcp-mail-core-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
       - name: Check committed and generated diffs
         run: |
           git diff-tree --check -r --root HEAD
