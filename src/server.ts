@@ -40,7 +40,14 @@ export function buildMailServer(service: MultiAccountMailService): McpServer {
   return server;
 }
 
-function result(value: unknown) { return { content: [{ type: "text" as const, text: JSON.stringify(value) }], structuredContent: (typeof value === "object" && value !== null ? value : { value }) as Record<string, unknown> }; }
+function result(value: unknown) {
+  const structuredContent = Array.isArray(value)
+    ? { items: value }
+    : typeof value === "object" && value !== null
+      ? value as Record<string, unknown>
+      : { value };
+  return { content: [{ type: "text" as const, text: JSON.stringify(value) }], structuredContent };
+}
 function failure(error: unknown) { const safe = { error: publicFailure(error) }; return { ...result(safe), isError: true }; }
 function compact<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
 

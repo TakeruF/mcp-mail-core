@@ -1,3 +1,5 @@
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it, vi } from "vitest";
 import { InMemoryAccountRegistry, createMailHost, type MailCapabilities, type MailProviderAdapter, type RegisteredAccount } from "../src/index.js";
 
@@ -24,6 +26,27 @@ function account(id: string, provider: string): RegisteredAccount {
 }
 
 describe("provider-neutral mail host", () => {
+  it("returns MCP-valid object structured content for account arrays", async () => {
+    const host = createMailHost({
+      registry: new InMemoryAccountRegistry([account("alpha-main", "alpha")]),
+      providers: [adapter("alpha")],
+      cursorSecret: new Uint8Array(32).fill(16),
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "mcp-mail-core-test", version: "0.1.0" });
+
+    try {
+      await host.server.connect(serverTransport);
+      await client.connect(clientTransport);
+      const response = await client.callTool({ name: "list_mail_accounts", arguments: {} });
+      expect(response.structuredContent).toEqual({
+        items: [expect.objectContaining({ id: "alpha-main", provider: "alpha" })],
+      });
+    } finally {
+      await client.close();
+    }
+  });
+
   it("composes independently configured providers with provenance and isolated writes", async () => {
     const alpha = adapter("alpha");
     const beta = adapter("beta");
