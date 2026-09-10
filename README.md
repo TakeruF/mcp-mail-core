@@ -98,7 +98,7 @@ npm run build
 npm run test:package
 ```
 
-Normal tests use synthetic data and mocked HTTP. The opt-in Gmail live smoke test is isolated under `tests/live/` and requires all of `MCP_MAIL_RUN_LIVE=true`, `GOOGLE_OAUTH_CLIENT_ID`, and a Keychain handle in `MCP_MAIL_LIVE_CREDENTIAL_ID` (always `gmail:` followed by the account id). It is read-only: it reads the profile, one message id, and that message's metadata. See [docs/live-smoke-test.md](docs/live-smoke-test.md) for the full runbook. Provider-repository live checks remain separate because Core never owns QQ authorization codes or iCloud app-specific passwords.
+Normal tests use synthetic data and mocked HTTP. The opt-in Gmail live smoke test is isolated under `tests/live/` and requires all of `MCP_MAIL_RUN_LIVE=true`, `GOOGLE_OAUTH_CLIENT_ID`, and a Keychain handle in `MCP_MAIL_LIVE_CREDENTIAL_ID` (always `gmail:` followed by the account id). The test issues no writes — it reads the profile, one message id, and that message's metadata — but enrollment still grants `gmail.modify`, so use a throwaway mailbox. See [docs/live-smoke-test.md](docs/live-smoke-test.md) for the full runbook. Provider-repository live checks remain separate because Core never owns QQ authorization codes or iCloud app-specific passwords.
 
 ## Removing an account
 
