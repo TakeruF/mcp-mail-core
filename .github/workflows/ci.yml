@@ -2,13 +2,54 @@ name: CI
 
 on:
   push:
+    branches: [main]
+    # Changes reach main through PRs, which already ran the full suite.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+  # No path filter on PRs: these jobs are required status checks,
+  # so every PR has to produce them or it can never merge.
   pull_request:
 
 permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect code changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Decide whether the PR changes more than docs
+        id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Fail open: anything other than a clean docs-only diff runs the full suite.
+          # Only added/modified docs count; deletes and renames (e.g. README.md,
+          # which test:package requires) still run everything.
+          code=true
+          if [ "$EVENT" = pull_request ] && status=$(git diff --name-status "$BASE...$HEAD") && [ -n "$status" ]; then
+            if ! printf '%s\n' "$status" | grep -qvE '^[AM][[:space:]]+(.+\.md|docs/.+|LICENSE)$'; then
+              code=false
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "code=$code"
+
   verify:
+    needs: changes
+    # A job skipped by its condition reports success, so this required check
+    # still passes on docs-only PRs. If change detection fails, run anyway.
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out full history
